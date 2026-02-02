@@ -16,7 +16,7 @@ def spmm_sum(src: SparseTensor, other: paddle.Tensor) -> paddle.Tensor:
     
     # Use scatter operations for aggregation
     row = src.storage.row()
-    out = other.index_select(-2, col)
+    out = paddle.index_select(other, col, axis=-2)
     
     if value is not None:
         out = out * value.unsqueeze(-1)
@@ -51,7 +51,7 @@ def spmm_mean(src: SparseTensor, other: paddle.Tensor) -> paddle.Tensor:
         value = value.astype(other.dtype)
     
     row = src.storage.row()
-    out = other.index_select(-2, col)
+    out = paddle.index_select(other, col, axis=-2)
     
     if value is not None:
         out = out * value.unsqueeze(-1)
@@ -88,7 +88,7 @@ def spmm_min(src: SparseTensor, other: paddle.Tensor) -> Tuple[paddle.Tensor, pa
         value = value.astype(other.dtype)
     
     row = src.storage.row()
-    out = other.index_select(-2, col)
+    out = paddle.index_select(other, col, axis=-2)
     
     if value is not None:
         out = out * value.unsqueeze(-1)
@@ -125,7 +125,7 @@ def spmm_max(src: SparseTensor, other: paddle.Tensor) -> Tuple[paddle.Tensor, pa
         value = value.astype(other.dtype)
     
     row = src.storage.row()
-    out = other.index_select(-2, col)
+    out = paddle.index_select(other, col, axis=-2)
     
     if value is not None:
         out = out * value.unsqueeze(-1)
@@ -169,33 +169,110 @@ def spmm(src: SparseTensor, other: paddle.Tensor, reduce: str = "sum") -> paddle
 
 
 def spspmm_sum(src: SparseTensor, other: SparseTensor) -> SparseTensor:
-    try:
+    # Use paddle.sparse.matmul on GPU, fallback to manual implementation on CPU
+    device = src.device()
+    is_gpu = 'gpu' in str(device).lower()
+
+    if is_gpu:
+        # Use Paddle's built-in sparse matrix multiplication on GPU
+        try:
+            rowA, colA, valueA = src.coo()
+            rowB, colB, valueB = other.coo()
+            
+            A_coo = paddle.sparse.sparse_coo_tensor(
+                paddle.stack([rowA, colA]),
+                valueA if valueA is not None else paddle.ones([len(rowA)], dtype='float32'),
+                src.sparse_sizes(),
+                place=device
+            )
+            B_coo = paddle.sparse.sparse_coo_tensor(
+                paddle.stack([rowB, colB]),
+                valueB if valueB is not None else paddle.ones([len(rowB)], dtype='float32'),
+                other.sparse_sizes(),
+                place=device
+            )
+            
+            C_coo = paddle.sparse.matmul(A_coo, B_coo)
+            
+            indices = C_coo.indices()
+            row, col = indices[0], indices[1]
+            value = C_coo.values() if C_coo.values() is not None else None
+            
+            return SparseTensor(
+                row=row,
+                col=col,
+                value=value,
+                sparse_sizes=(C_coo.shape[0], C_coo.shape[1]),
+                is_sorted=True,
+                trust_data=True,
+            )
+        except Exception as e:
+            # Fallback to manual implementation if GPU kernel fails
+            print(f"Warning: GPU spspmm failed ({e}), falling back to CPU implementation")
+    
+    # Manual sparse-sparse matrix multiplication implementation (CPU fallback)
+    rowA, colA, valueA = src.coo()
+    rowB, colB, valueB = other.coo()
+    
+    # Ensure inputs are coalesced
+    if not src.is_coalesced():
+        src = src.coalesce()
+    if not other.is_coalesced():
+        other = other.coalesce()
         rowA, colA, valueA = src.coo()
         rowB, colB, valueB = other.coo()
+    
+    # Create result storage
+    result_dict = {}
+    
+    # Manual sparse-sparse multiplication: C[i,j] = sum_k A[i,k] * B[k,j]
+    for idx_a in range(rowA.shape[0]):
+        i, k = rowA[idx_a].item(), colA[idx_a].item()
+        for idx_b in range(rowB.shape[0]):
+            if rowB[idx_b].item() == k:
+                j = colB[idx_b].item()
+                key = (i, j)
+                if valueA is not None and valueB is not None:
+                    val = valueA[idx_a].item() * valueB[idx_b].item()
+                else:
+                    val = 1.0
+                
+                if key in result_dict:
+                    result_dict[key] += val
+                else:
+                    result_dict[key] = val
+    
+    # Convert to tensors
+    if result_dict:
+        rows = [k[0] for k in result_dict.keys()]
+        cols = [k[1] for k in result_dict.keys()]
+        values = list(result_dict.values())
         
-        A_coo = paddle.sparse.sparse_coo_tensor(
-            paddle.stack([rowA, colA]), valueA, src.sparse_sizes()
-        )
-        B_coo = paddle.sparse.sparse_coo_tensor(
-            paddle.stack([rowB, colB]), valueB, other.sparse_sizes()
-        )
+        # Sort by (row, col) for consistent output
+        sorted_indices = sorted(zip(rows, cols, values), key=lambda x: (x[0], x[1]))
+        rows = [idx[0] for idx in sorted_indices]
+        cols = [idx[1] for idx in sorted_indices]
+        values = [idx[2] for idx in sorted_indices]
         
-        C_coo = paddle.sparse.mm(A_coo, B_coo)
-        
-        indices = C_coo.indices()
-        row, col = indices[0], indices[1]
-        value = C_coo.values() if C_coo.values() is not None else None
-        
-        return SparseTensor(
-            row=row,
-            col=col,
-            value=value,
-            sparse_sizes=(C_coo.shape[0], C_coo.shape[1]),
-            is_sorted=True,
-            trust_data=True,
-        )
-    except:
-        raise NotImplementedError("Manual sparse-sparse multiplication not yet implemented")
+        row = paddle.to_tensor(rows, dtype='int64')
+        col = paddle.to_tensor(cols, dtype='int64')
+        value = paddle.to_tensor(values, dtype=src.dtype() if src.has_value() else 'float32')
+    else:
+        row = paddle.to_tensor([], dtype='int64')
+        col = paddle.to_tensor([], dtype='int64')
+        value = None
+    
+    m = src.sparse_size(0)
+    n = other.sparse_size(1)
+    
+    return SparseTensor(
+        row=row,
+        col=col,
+        value=value,
+        sparse_sizes=(m, n),
+        is_sorted=True,
+        trust_data=True,
+    )
 
 
 def spspmm_add(src: SparseTensor, other: SparseTensor) -> SparseTensor:

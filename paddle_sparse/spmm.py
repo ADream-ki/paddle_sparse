@@ -11,10 +11,29 @@ from paddle_sparse.tensor import SparseTensor
 def spmm(index: Tensor, value: Tensor, m: int, n: int, matrix: Tensor) -> Tensor:
     assert n == matrix.shape[-2]
 
+    device = matrix.place
+    is_gpu = 'gpu' in str(device).lower()
+
+    if is_gpu:
+        # Use Paddle's built-in sparse-dense matrix multiplication on GPU
+        try:
+            sparse_coo = paddle.sparse.sparse_coo_tensor(
+                index,
+                value,
+                (m, n),
+                place=device
+            )
+            return paddle.sparse.matmul(sparse_coo, matrix)
+        except Exception as e:
+            # Fallback to manual implementation if GPU kernel fails
+            print(f"Warning: GPU spmm failed ({e}), falling back to CPU implementation")
+
+    # Manual sparse-dense matrix multiplication implementation (CPU fallback)
     row, col = index[0], index[1]
     matrix = matrix if matrix.ndim > 1 else matrix.unsqueeze(-1)
 
-    out = matrix.index_select(-2, col)
+    # Use paddle.index_select function
+    out = paddle.index_select(matrix, col, axis=-2)
     out = out * value.unsqueeze(-1)
     
     try:
