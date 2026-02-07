@@ -12,6 +12,10 @@ def test_matmul_dense(dtype, device):
     """Test sparse-dense matrix multiplication."""
     set_testing_device(device)
     
+    # Skip float16 and bfloat16 due to kernel not supported
+    if dtype in [paddle.float16, paddle.bfloat16]:
+        pytest.skip()
+    
     # Create sparse tensor
     row = paddle.to_tensor([0, 0, 1, 2, 2], dtype='int64')
     col = paddle.to_tensor([0, 2, 1, 0, 1], dtype='int64')
@@ -33,6 +37,10 @@ def test_matmul_dense(dtype, device):
 def test_matmul_reduce_operations(dtype, device):
     """Test different reduce operations for sparse-dense matmul."""
     set_testing_device(device)
+    
+    # Skip float16 and bfloat16 due to kernel not supported
+    if dtype in [paddle.float16, paddle.bfloat16]:
+        pytest.skip()
     
     # Create sparse tensor with multiple values per row
     row = paddle.to_tensor([0, 0, 1, 1, 2], dtype='int64')
@@ -67,6 +75,10 @@ def test_sparse_tensor_matmul_method(dtype, device):
     """Test SparseTensor.matmul method."""
     set_testing_device(device)
     
+    # Skip float16 and bfloat16 due to kernel not supported
+    if dtype in [paddle.float16, paddle.bfloat16]:
+        pytest.skip()
+    
     # Create sparse tensor
     row = paddle.to_tensor([0, 1, 2], dtype='int64')
     col = paddle.to_tensor([0, 1, 2], dtype='int64')
@@ -88,6 +100,10 @@ def test_sparse_tensor_matmul_method(dtype, device):
 def test_sparse_tensor_matmul_operator(dtype, device):
     """Test SparseTensor @ operator."""
     set_testing_device(device)
+    
+    # Skip float16 and bfloat16 due to kernel not supported
+    if dtype in [paddle.float16, paddle.bfloat16]:
+        pytest.skip()
     
     # Create sparse tensor
     row = paddle.to_tensor([0, 1, 2], dtype='int64')

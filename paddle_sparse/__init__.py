@@ -54,7 +54,7 @@ from .convert import to_scipy, from_scipy  # noqa
 from .coalesce import coalesce  # noqa
 from .transpose import transpose  # noqa
 from .eye import eye  # noqa
-from .spmm import spmm, spspspmm  # noqa
+from .spmm import spmm, spspmm  # noqa
 from .matmul import matmul  # noqa
 
 __all__ = [

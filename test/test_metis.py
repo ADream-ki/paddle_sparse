@@ -5,12 +5,34 @@ import paddle
 
 from paddle_sparse import SparseTensor
 from paddle_sparse.metis import partition, weight2metis
-from paddle_sparse.testing import devices, dtypes, tensor, set_testing_device
+from paddle_sparse.testing import devices, dtypes, tensor, set_testing_device, maybe_skip_testing
+
+
+def skip_if_cuda_incompatible(dtype, device):
+    """Skip test if CUDA device is not compatible with PaddlePaddle."""
+    maybe_skip_testing(dtype, device)
+    
+    # Additional CUDA compatibility check
+    device_str = str(device)
+    if "gpu" in device_str.lower() or "cuda" in device_str.lower():
+        try:
+            # Try to set device and create a simple tensor
+            original_device = paddle.device.get_device()
+            paddle.device.set_device(device_str)
+            # Try a simple operation that would fail with incompatible CUDA
+            test_tensor = paddle.to_tensor([1.0], dtype='float32')
+            _ = test_tensor + 1
+            # Restore original device
+            if original_device:
+                paddle.device.set_device(original_device)
+        except Exception:
+            pytest.skip(f"CUDA device {device_str} not compatible with PaddlePaddle")
 
 
 @pytest.mark.parametrize('dtype,device', product(dtypes, devices))
 def test_partition_single_part(dtype, device):
     """Test partition with single part."""
+    skip_if_cuda_incompatible(dtype, device)
     set_testing_device(device)
     
     # Create a simple graph
@@ -32,6 +54,7 @@ def test_partition_single_part(dtype, device):
 @pytest.mark.parametrize('dtype,device', product(dtypes, devices))
 def test_partition_multiple_parts(dtype, device):
     """Test partition with multiple parts."""
+    skip_if_cuda_incompatible(dtype, device)
     set_testing_device(device)
     
     # Create a simple graph
@@ -56,6 +79,7 @@ def test_partition_multiple_parts(dtype, device):
 @pytest.mark.parametrize('dtype,device', product(dtypes, devices))
 def test_partition_with_node_weights(dtype, device):
     """Test partition with node weights."""
+    skip_if_cuda_incompatible(dtype, device)
     set_testing_device(device)
     
     # Create a simple graph
@@ -77,6 +101,7 @@ def test_partition_with_node_weights(dtype, device):
 @pytest.mark.parametrize('dtype,device', product(dtypes, devices))
 def test_partition_balance_edge(dtype, device):
     """Test partition with edge balancing."""
+    skip_if_cuda_incompatible(dtype, device)
     set_testing_device(device)
     
     # Create a simple graph
@@ -109,6 +134,7 @@ def test_weight2metis():
 @pytest.mark.parametrize('dtype,device', product(dtypes, devices))
 def test_sparse_tensor_partition_method(dtype, device):
     """Test SparseTensor.partition method."""
+    skip_if_cuda_incompatible(dtype, device)
     set_testing_device(device)
     
     # Create a simple graph

@@ -2,6 +2,7 @@ from itertools import product
 
 import pytest
 import paddle
+import numpy as np
 
 from paddle_sparse import SparseTensor
 from paddle_sparse.diag import remove_diag, set_diag, fill_diag, get_diag
@@ -21,9 +22,15 @@ def test_get_diag(dtype, device):
     
     diag = get_diag(sparse_tensor)
     
-    # Check diagonal values
-    expected_diag = [1, 3, 5]  # Values at positions (0,0), (1,1), (2,2)
-    assert diag.tolist() == expected_diag, f"Expected {expected_diag}, got {diag.tolist()}"
+    # Check diagonal values using numpy to avoid bfloat16.tolist() bug
+    # For bfloat16, we need to cast to float32 first before converting to numpy
+    if diag.dtype == paddle.bfloat16:
+        diag_float32 = diag.cast('float32')
+        actual_diag = diag_float32.numpy()
+    else:
+        actual_diag = diag.numpy()
+    expected_diag = np.array([1, 3, 5], dtype='float32')
+    np.testing.assert_array_almost_equal(actual_diag, expected_diag, decimal=5)
 
 
 @pytest.mark.parametrize('dtype,device', product(dtypes, devices))
@@ -98,8 +105,14 @@ def test_sparse_tensor_diag_methods(dtype, device):
     
     # Test get_diag method
     diag = sparse_tensor.get_diag()
-    expected_diag = [1, 3, 4]  # Values at positions (0,0), (1,1), (2,2)
-    assert diag.tolist() == expected_diag, f"Expected {expected_diag}, got {diag.tolist()}"
+    # For bfloat16, we need to cast to float32 first before converting to numpy
+    if diag.dtype == paddle.bfloat16:
+        diag_float32 = diag.cast('float32')
+        actual_diag = diag_float32.numpy()
+    else:
+        actual_diag = diag.numpy()
+    expected_diag = np.array([1, 3, 4], dtype='float32')
+    np.testing.assert_array_almost_equal(actual_diag, expected_diag, decimal=5)
     
     # Test remove_diag method
     no_diag = sparse_tensor.remove_diag()

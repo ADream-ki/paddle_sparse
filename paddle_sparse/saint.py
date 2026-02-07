@@ -38,7 +38,13 @@ def saint_subgraph(src: SparseTensor, node_idx: paddle.Tensor) -> Tuple[SparseTe
         new_col = paddle.gather(node_map, new_col)
         
         if value is not None:
-            new_value = paddle.gather(value, valid_edges)
+            # paddle.gather doesn't support float16, so convert to float32 temporarily
+            original_dtype = value.dtype
+            if original_dtype == paddle.float16:
+                value_float32 = value.cast('float32')
+                new_value = paddle.gather(value_float32, valid_edges).cast(original_dtype)
+            else:
+                new_value = paddle.gather(value, valid_edges)
         else:
             new_value = None
             

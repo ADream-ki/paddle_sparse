@@ -10,7 +10,10 @@ from paddle_sparse.tensor import SparseTensor
 
 
 def weight2metis(weight: Tensor) -> Optional[Tensor]:
-    sorted_weight = paddle.sort(weight)[0]
+    if weight.numel() <= 1:
+        return None
+    
+    sorted_weight = paddle.sort(weight)
     diff = sorted_weight[1:] - sorted_weight[:-1]
     if paddle.sum(diff) == 0:
         return None
@@ -50,7 +53,7 @@ def partition(
             node_weight[row[i]] += 1
 
     if node_weight is not None:
-        _, perm = paddle.sort(node_weight)
+        perm = paddle.argsort(node_weight)
     else:
         perm = paddle.arange(n, dtype='int64')
     
