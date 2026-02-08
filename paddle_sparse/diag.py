@@ -47,22 +47,30 @@ def set_diag(src: SparseTensor, values: Optional[Tensor] = None, k: int = 0) -> 
         diag_col = paddle.arange(diag_size, dtype='int64')
         diag_row = diag_col - k
 
-    new_row = paddle.concat([row, diag_row], axis=0)
-    new_col = paddle.concat([col, diag_col], axis=0)
+    total_size = row.size(0) + diag_size
+    mask = paddle.zeros([total_size], dtype='bool')
+    mask[:row.size(0)] = True
+    inv_mask = ~mask
+
+    new_row = paddle.zeros([total_size], dtype='int64')
+    new_row[mask] = row
+    new_row[inv_mask] = diag_row
+
+    new_col = paddle.zeros([total_size], dtype='int64')
+    new_col[mask] = col
+    new_col[inv_mask] = diag_col
 
     new_value: Optional[Tensor] = None
     if value is not None or values is not None:
         if value is not None:
+            value_shape = [total_size] + list(value.shape[1:])
+            new_value = paddle.zeros(value_shape, dtype=value.dtype)
+            new_value[mask] = value
             if values is not None:
-                diag_values = values
+                new_value[inv_mask] = values
             else:
-                diag_values = paddle.ones([diag_size], dtype=value.dtype)
-            new_value = paddle.concat([value, diag_values], axis=0)
-        else:
-            if values is not None:
-                new_value = values
-            else:
-                new_value = paddle.ones([diag_size], dtype='float32')
+                diag_values = paddle.ones([diag_size] + list(value.shape[1:]), dtype=value.dtype)
+                new_value[inv_mask] = diag_values
 
     storage = SparseStorage(
         row=new_row, 
@@ -83,17 +91,16 @@ def set_diag(src: SparseTensor, values: Optional[Tensor] = None, k: int = 0) -> 
 def fill_diag(src: SparseTensor, fill_value: float, k: int = 0) -> SparseTensor:
     m, n = src.size(0), src.size(1)
     if k >= 0:
-        diag_size = min(m, n - k)
+        num_diag = min(m, n - k)
     else:
-        diag_size = min(m + k, n)
+        num_diag = min(m + k, n)
 
     value = src.storage.value()
     if value is not None:
-        diag_values = paddle.full([diag_size], fill_value, dtype=value.dtype)
+        sizes = [num_diag] + list(value.shape[1:])
+        return set_diag(src, paddle.full(sizes, fill_value, dtype=value.dtype), k)
     else:
-        diag_values = paddle.full([diag_size], fill_value, dtype='float32')
-        
-    return set_diag(src, diag_values, k)
+        return set_diag(src, None, k)
 
 
 def get_diag(src: SparseTensor) -> Tensor:
